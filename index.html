@@ -38,6 +38,24 @@
             font-style: italic;
             color: #666;
         }
+        #micStatus {
+            display: inline-block;
+            width: 15px;
+            height: 15px;
+            border-radius: 50%;
+            background-color: #ccc;
+            margin-left: 10px;
+            vertical-align: middle;
+        }
+        .listening {
+            background-color: #f44336 !important;
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
     </style>
 </head>
 <body>
@@ -47,6 +65,7 @@
     <input type="password" id="apiKeyInput" placeholder="Enter your Gemini API Key" />
     <button id="startBtn">Start Listening</button>
     <button id="stopBtn" disabled>Stop Listening</button>
+    <div id="micStatus"></div>
     
     <div id="result">
         <p>Your speech will appear here...</p>
@@ -67,9 +86,15 @@
         const stopBtn = document.getElementById('stopBtn');
         const resultDiv = document.getElementById('result');
         const apiKeyInput = document.getElementById('apiKeyInput');
+        const micStatus = document.getElementById('micStatus');
         
-        // Add throttling to prevent too many requests
+        // State variables
         let isProcessing = false;
+        let lastProcessedText = "";
+        let silenceTimer = null;
+        let isSpeaking = false;
+        let transcriptBuffer = "";
+        let silenceTimeout = 1500; // 1.5 seconds of silence to consider speech complete
         
         // Event listeners for buttons
         startBtn.addEventListener('click', () => {
@@ -82,28 +107,59 @@
             recognition.start();
             startBtn.disabled = true;
             stopBtn.disabled = false;
+            micStatus.classList.add('listening');
         });
         
         stopBtn.addEventListener('click', () => {
             recognition.stop();
             startBtn.disabled = false;
             stopBtn.disabled = true;
+            micStatus.classList.remove('listening');
+            clearTimeout(silenceTimer);
         });
         
         // Process speech results
         recognition.onresult = (event) => {
+            // Clear previous silence timer
+            clearTimeout(silenceTimer);
+            
             const resultIndex = event.resultIndex;
             const transcript = event.results[resultIndex][0].transcript;
             
             if (event.results[resultIndex].isFinal) {
-                resultDiv.innerHTML = `<p>You said: ${transcript}</p>`;
+                transcriptBuffer += " " + transcript;
+                transcriptBuffer = transcriptBuffer.trim();
                 
-                // Only process if not already processing
-                if (!isProcessing) {
-                    processWithGemini(transcript);
-                } else {
-                    resultDiv.innerHTML += `<p class="loading">Already processing a request. Please wait...</p>`;
-                }
+                resultDiv.innerHTML = `<p>You said: ${transcriptBuffer}</p>`;
+                
+                // Set a timer to process after silence
+                silenceTimer = setTimeout(() => {
+                    if (!isProcessing && transcriptBuffer !== lastProcessedText && transcriptBuffer.trim() !== "") {
+                        lastProcessedText = transcriptBuffer;
+                        processWithGemini(transcriptBuffer);
+                        transcriptBuffer = ""; // Clear buffer after processing
+                    }
+                }, silenceTimeout);
+            } else {
+                // Update with interim results
+                resultDiv.innerHTML = `<p>Listening: ${transcriptBuffer} ${transcript}</p>`;
+            }
+        };
+        
+        // Handle end of speech recognition
+        recognition.onend = () => {
+            // If there's any unprocessed transcript and we're not already processing
+            if (!isProcessing && transcriptBuffer !== lastProcessedText && transcriptBuffer.trim() !== "") {
+                lastProcessedText = transcriptBuffer;
+                processWithGemini(transcriptBuffer);
+                transcriptBuffer = "";
+            }
+            
+            // If not manually stopped, restart
+            if (!startBtn.disabled) {
+                micStatus.classList.remove('listening');
+            } else {
+                recognition.start();
             }
         };
         
@@ -112,6 +168,7 @@
             resultDiv.innerHTML = `<p>Error: ${event.error}</p>`;
             startBtn.disabled = false;
             stopBtn.disabled = true;
+            micStatus.classList.remove('listening');
         };
         
         // Process with Gemini API
@@ -122,12 +179,12 @@
             try {
                 const apiKey = apiKeyInput.value;
                 
-                // Use the exact configuration from the provided code
+                // Use reasonable limits for voice responses
                 const generationConfig = {
                     temperature: 1,
                     topP: 0.95,
                     topK: 64,
-                    maxOutputTokens: 65536, // This is very high, might want to lower for voice responses
+                    maxOutputTokens: 1024, // Reduced for voice responses
                     responseMimeType: 'text/plain',
                 };
                 
@@ -145,50 +202,55 @@
                 
                 const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro-preview-03-25:generateContent?key=${apiKey}`;
                 
-                // Use XMLHttpRequest instead of fetch for better compatibility
-                const xhr = new XMLHttpRequest();
-                xhr.open('POST', url, true);
-                xhr.setRequestHeader('Content-Type', 'application/json');
-                xhr.onreadystatechange = function() {
-                    if (xhr.readyState === 4) {
-                        isProcessing = false;
+                // Use fetch API with timeout
+                try {
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 20000); // 20 second timeout
+                    
+                    const response = await fetch(url, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify(data),
+                        signal: controller.signal
+                    });
+                    
+                    clearTimeout(timeoutId);
+                    
+                    if (response.status === 200) {
+                        const responseData = await response.json();
                         
-                        if (xhr.status === 200) {
-                            try {
-                                const responseData = JSON.parse(xhr.responseText);
-                                
-                                // Extract the response text from Gemini
-                                if (responseData.candidates && 
-                                    responseData.candidates[0] && 
-                                    responseData.candidates[0].content && 
-                                    responseData.candidates[0].content.parts && 
-                                    responseData.candidates[0].content.parts[0]) {
-                                    
-                                    const geminiResponse = responseData.candidates[0].content.parts[0].text;
-                                    
-                                    // Remove the "Processing with Gemini..." message
-                                    resultDiv.innerHTML = resultDiv.innerHTML.replace('<p class="loading">Processing with Gemini...</p>', '');
-                                    
-                                    // Display and speak the response
-                                    resultDiv.innerHTML += `<p><strong>Assistant:</strong> ${geminiResponse}</p>`;
-                                    speak(geminiResponse);
-                                } else {
-                                    throw new Error("Unexpected response format from Gemini API");
-                                }
-                            } catch (error) {
-                                handleError(error);
-                            }
-                        } else if (xhr.status === 429) {
-                            handleError(new Error("Too many requests (429). Please wait before trying again."));
+                        // Extract the response text from Gemini
+                        if (responseData.candidates && 
+                            responseData.candidates[0] && 
+                            responseData.candidates[0].content && 
+                            responseData.candidates[0].content.parts && 
+                            responseData.candidates[0].content.parts[0]) {
+                            
+                            const geminiResponse = responseData.candidates[0].content.parts[0].text;
+                            
+                            // Remove the "Processing with Gemini..." message
+                            resultDiv.innerHTML = resultDiv.innerHTML.replace('<p class="loading">Processing with Gemini...</p>', '');
+                            
+                            // Display and speak the response
+                            resultDiv.innerHTML += `<p><strong>Assistant:</strong> ${geminiResponse}</p>`;
+                            speak(geminiResponse);
                         } else {
-                            handleError(new Error(`API request failed: ${xhr.status} ${xhr.statusText}`));
+                            throw new Error("Unexpected response format from Gemini API");
                         }
+                    } else if (response.status === 429) {
+                        throw new Error("Too many requests (429). Please wait a moment before speaking again.");
+                    } else {
+                        throw new Error(`API request failed: ${response.status} ${response.statusText}`);
                     }
-                };
-                xhr.send(JSON.stringify(data));
+                } catch (error) {
+                    throw error;
+                }
                 
             } catch (error) {
                 handleError(error);
+            } finally {
                 isProcessing = false;
             }
         }
@@ -206,6 +268,9 @@
         
         // Text-to-speech function
         function speak(text) {
+            // Flag that we're speaking
+            isSpeaking = true;
+            
             // Stop any current speech
             synth.cancel();
             
@@ -215,6 +280,11 @@
             // Optional: adjust speech parameters
             utterance.rate = 1.0; // Speed: 0.1 to 10
             utterance.pitch = 1.0; // Pitch: 0 to 2
+            
+            // Handle when speech ends
+            utterance.onend = function() {
+                isSpeaking = false;
+            };
             
             // Speak
             synth.speak(utterance);
