@@ -3,68 +3,81 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gemini Voice Assistant</title>
+    <title>Voice Assistant</title>
     <style>
         body {
             font-family: Arial, sans-serif;
-            max-width: 600px;
+            max-width: 800px;
             margin: 0 auto;
             padding: 20px;
-            text-align: center;
+            line-height: 1.6;
+        }
+        .container {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .chat-area {
+            height: 400px;
+            border: 1px solid #ccc;
+            padding: 15px;
+            overflow-y: auto;
+            border-radius: 8px;
+        }
+        .message {
+            margin-bottom: 10px;
+            padding: 10px;
+            border-radius: 8px;
+            max-width: 80%;
+        }
+        .user-message {
+            background-color: #e3f2fd;
+            align-self: flex-end;
+            margin-left: auto;
+        }
+        .assistant-message {
             background-color: #f5f5f5;
+            align-self: flex-start;
+        }
+        .input-area {
+            display: flex;
+            gap: 10px;
+        }
+        #user-input {
+            flex-grow: 1;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
         }
         button {
-            padding: 10px 20px;
-            margin: 10px;
-            font-size: 16px;
-            cursor: pointer;
+            padding: 10px 15px;
             background-color: #4285f4;
             color: white;
             border: none;
-            border-radius: 5px;
-            transition: background-color 0.3s;
+            border-radius: 4px;
+            cursor: pointer;
         }
         button:hover {
-            background-color: #3367d6;
+            background-color: #2b6cb0;
         }
-        button:disabled {
-            background-color: #ccc;
-            cursor: not-allowed;
+        .api-key-area {
+            margin-bottom: 20px;
         }
-        #result {
-            margin-top: 20px;
-            min-height: 150px;
-            border: 1px solid #ccc;
-            padding: 15px;
-            border-radius: 5px;
-            text-align: left;
-            overflow-y: auto;
-            max-height: 300px;
-            background-color: white;
-        }
-        #apiKeyInput {
+        #api-key {
             width: 100%;
-            padding: 12px;
-            margin-bottom: 15px;
+            padding: 10px;
+            margin-bottom: 10px;
             border: 1px solid #ccc;
-            border-radius: 5px;
+            border-radius: 4px;
         }
-        .loading {
-            margin: 10px 0;
-            font-style: italic;
-            color: #666;
-        }
-        #micStatus {
-            display: inline-block;
-            width: 15px;
-            height: 15px;
-            border-radius: 50%;
-            background-color: #ccc;
-            margin-left: 10px;
-            vertical-align: middle;
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
         }
         .listening {
-            background-color: #f44336 !important;
+            color: red;
+            font-weight: bold;
             animation: pulse 1.5s infinite;
         }
         @keyframes pulse {
@@ -72,318 +85,232 @@
             50% { opacity: 0.5; }
             100% { opacity: 1; }
         }
-        .settings {
-            margin-top: 20px;
-            padding: 15px;
-            border: 1px solid #ddd;
-            border-radius: 5px;
-            background-color: #f9f9f9;
-            text-align: left;
-        }
-        .toggle {
-            margin: 10px 0;
-        }
-        select, input[type="number"] {
-            padding: 8px;
-            border: 1px solid #ccc;
-            border-radius: 4px;
-            margin-left: 10px;
-        }
     </style>
 </head>
 <body>
-    <h1>Gemini Voice Assistant</h1>
-    <p>Enter your Gemini API key and click Start Listening</p>
-    
-    <input type="password" id="apiKeyInput" placeholder="Enter your Gemini API Key" />
-    <button id="startBtn">Start Listening</button>
-    <button id="stopBtn" disabled>Stop Listening</button>
-    <div id="micStatus"></div>
-    
-    <div class="settings">
-        <h3>Settings</h3>
-        <div class="toggle">
-            <label for="modelSelect">Model:</label>
-            <select id="modelSelect">
-                <option value="gemini-2.5-pro-preview-03-25" selected>Gemini 2.5 Pro</option>
-                <option value="gemini-pro">Gemini Pro</option>
-                <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
-            </select>
+    <h1>Voice Assistant</h1>
+    <div class="container">
+        <div class="api-key-area">
+            <label for="api-key">Enter your Gemini API Key:</label>
+            <input type="password" id="api-key" placeholder="Your API key" />
+            <p><small>Your API key is stored locally and never sent to any server except Google's API.</small></p>
         </div>
-        <div class="toggle">
-            <label for="backoffTime">Rate limit backoff (ms):</label>
-            <input type="number" id="backoffTime" value="2000" min="1000" max="10000" step="500">
+        
+        <div class="chat-area" id="chat-area"></div>
+        
+        <div class="input-area">
+            <input type="text" id="user-input" placeholder="Type your message..." />
+            <button id="send-btn">Send</button>
         </div>
-        <div class="toggle">
-            <label for="maxRetries">Max retries:</label>
-            <input type="number" id="maxRetries" value="3" min="1" max="5">
+        
+        <div class="controls">
+            <button id="speak-btn">Start Voice Input</button>
+            <button id="toggle-speech-btn">Enable Voice Response</button>
+            <span id="listening-indicator"></span>
         </div>
     </div>
-    
-    <div id="result">
-        <p>Your speech will appear here...</p>
-    </div>
-    
+
     <script>
-        // Speech recognition setup
-        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        const recognition = new SpeechRecognition();
-        recognition.continuous = true;
-        recognition.interimResults = true;
+        // Set up DOM elements
+        const chatArea = document.getElementById('chat-area');
+        const userInput = document.getElementById('user-input');
+        const sendBtn = document.getElementById('send-btn');
+        const speakBtn = document.getElementById('speak-btn');
+        const toggleSpeechBtn = document.getElementById('toggle-speech-btn');
+        const listeningIndicator = document.getElementById('listening-indicator');
+        const apiKeyInput = document.getElementById('api-key');
+        
+        // Chat history
+        let chatHistory = [];
         
         // Speech synthesis setup
         const synth = window.speechSynthesis;
+        let isSpeechEnabled = false;
         
-        // DOM elements
-        const startBtn = document.getElementById('startBtn');
-        const stopBtn = document.getElementById('stopBtn');
-        const resultDiv = document.getElementById('result');
-        const apiKeyInput = document.getElementById('apiKeyInput');
-        const micStatus = document.getElementById('micStatus');
-        const modelSelect = document.getElementById('modelSelect');
-        const backoffTimeInput = document.getElementById('backoffTime');
-        const maxRetriesInput = document.getElementById('maxRetries');
-        
-        // State variables
-        let isProcessing = false;
-        let lastProcessedText = "";
-        let silenceTimer = null;
-        let isSpeaking = false;
-        let transcriptBuffer = "";
-        let silenceTimeout = 1500; // 1.5 seconds of silence to consider speech complete
-        let retryCount = 0;
-        
-        // Check if the API key is stored in localStorage
-        if (localStorage.getItem('geminiApiKey')) {
-            apiKeyInput.value = localStorage.getItem('geminiApiKey');
+        // Speech recognition setup
+        let recognition = null;
+        if ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window) {
+            recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+            recognition.continuous = false;
+            recognition.interimResults = false;
+            
+            recognition.onresult = (event) => {
+                const transcript = event.results[0][0].transcript;
+                userInput.value = transcript;
+                sendMessage();
+            };
+            
+            recognition.onstart = () => {
+                listeningIndicator.textContent = "Listening...";
+                listeningIndicator.classList.add('listening');
+            };
+            
+            recognition.onend = () => {
+                listeningIndicator.textContent = "";
+                listeningIndicator.classList.remove('listening');
+            };
         }
         
-        // Event listeners for buttons
-        startBtn.addEventListener('click', () => {
-            if (!apiKeyInput.value) {
-                alert('Please enter your Gemini API Key');
+        // Toggle speech output
+        toggleSpeechBtn.addEventListener('click', () => {
+            isSpeechEnabled = !isSpeechEnabled;
+            toggleSpeechBtn.textContent = isSpeechEnabled ? "Disable Voice Response" : "Enable Voice Response";
+        });
+        
+        // Start voice input
+        speakBtn.addEventListener('click', () => {
+            if (recognition) {
+                recognition.start();
+            } else {
+                alert("Speech recognition is not supported in your browser.");
+            }
+        });
+        
+        // Send message when button is clicked
+        sendBtn.addEventListener('click', sendMessage);
+        
+        // Send message when Enter key is pressed
+        userInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        });
+        
+        async function sendMessage() {
+            const message = userInput.value.trim();
+            if (message === '') return;
+            
+            const apiKey = apiKeyInput.value.trim();
+            if (apiKey === '') {
+                alert("Please enter your Gemini API key");
                 return;
             }
             
-            // Save API key to localStorage
-            localStorage.setItem('geminiApiKey', apiKeyInput.value);
-            
-            resultDiv.innerHTML = '<p>Listening...</p>';
-            recognition.start();
-            startBtn.disabled = true;
-            stopBtn.disabled = false;
-            micStatus.classList.add('listening');
-        });
-        
-        stopBtn.addEventListener('click', () => {
-            recognition.stop();
-            startBtn.disabled = false;
-            stopBtn.disabled = true;
-            micStatus.classList.remove('listening');
-            clearTimeout(silenceTimer);
-        });
-        
-        // Process speech results
-        recognition.onresult = (event) => {
-            // Clear previous silence timer
-            clearTimeout(silenceTimer);
-            
-            const resultIndex = event.resultIndex;
-            const transcript = event.results[resultIndex][0].transcript;
-            
-            if (event.results[resultIndex].isFinal) {
-                transcriptBuffer += " " + transcript;
-                transcriptBuffer = transcriptBuffer.trim();
-                
-                resultDiv.innerHTML = `<p>You said: ${transcriptBuffer}</p>`;
-                
-                // Set a timer to process after silence
-                silenceTimer = setTimeout(() => {
-                    if (!isProcessing && transcriptBuffer !== lastProcessedText && transcriptBuffer.trim() !== "") {
-                        lastProcessedText = transcriptBuffer;
-                        processWithGemini(transcriptBuffer);
-                        transcriptBuffer = ""; // Clear buffer after processing
-                    }
-                }, silenceTimeout);
-            } else {
-                // Update with interim results
-                resultDiv.innerHTML = `<p>Listening: ${transcriptBuffer} ${transcript}</p>`;
-            }
-        };
-        
-        // Handle end of speech recognition
-        recognition.onend = () => {
-            // If there's any unprocessed transcript and we're not already processing
-            if (!isProcessing && transcriptBuffer !== lastProcessedText && transcriptBuffer.trim() !== "") {
-                lastProcessedText = transcriptBuffer;
-                processWithGemini(transcriptBuffer);
-                transcriptBuffer = "";
-            }
-            
-            // If not manually stopped, restart
-            if (!startBtn.disabled) {
-                micStatus.classList.remove('listening');
-            } else {
-                recognition.start();
-            }
-        };
-        
-        // Handle errors
-        recognition.onerror = (event) => {
-            resultDiv.innerHTML = `<p>Error: ${event.error}</p>`;
-            startBtn.disabled = false;
-            stopBtn.disabled = true;
-            micStatus.classList.remove('listening');
-        };
-        
-        // Process with Gemini API
-        async function processWithGemini(userInput) {
-            isProcessing = true;
-            resultDiv.innerHTML += `<p class="loading">Processing with Gemini...</p>`;
+            // Add user message to chat
+            addMessageToChat('user', message);
+            userInput.value = '';
             
             try {
-                const apiKey = apiKeyInput.value;
-                const model = modelSelect.value;
+                // Create a loading message
+                const loadingElement = document.createElement('div');
+                loadingElement.className = 'message assistant-message';
+                loadingElement.textContent = 'Thinking...';
+                chatArea.appendChild(loadingElement);
+                chatArea.scrollTop = chatArea.scrollHeight;
                 
-                // Use reasonable limits for voice responses
-                const generationConfig = {
+                // Send message to Gemini API
+                const response = await callGeminiAPI(apiKey, message);
+                
+                // Remove loading message
+                chatArea.removeChild(loadingElement);
+                
+                // Add assistant's response to chat
+                addMessageToChat('assistant', response);
+                
+                // Speak response if enabled
+                if (isSpeechEnabled) {
+                    speakText(response);
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                chatArea.removeChild(chatArea.lastChild); // Remove loading message
+                addMessageToChat('assistant', `Error: ${error.message}`);
+            }
+        }
+        
+        function addMessageToChat(role, content) {
+            const messageElement = document.createElement('div');
+            messageElement.className = `message ${role}-message`;
+            messageElement.textContent = content;
+            chatArea.appendChild(messageElement);
+            chatArea.scrollTop = chatArea.scrollHeight;
+            
+            // Update chat history
+            chatHistory.push({ role, content });
+        }
+        
+        async function callGeminiAPI(apiKey, message) {
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro-preview-03-25:generateContent?key=${apiKey}`;
+            
+            const requestBody = {
+                contents: [
+                    {
+                        role: "user",
+                        parts: [{ text: message }]
+                    }
+                ],
+                generation_config: {
                     temperature: 1,
                     topP: 0.95,
                     topK: 64,
-                    maxOutputTokens: 1024, // Reduced for voice responses
-                    responseMimeType: 'text/plain',
-                };
-                
-                const data = {
-                    generationConfig,
-                    contents: [
-                        {
-                            role: 'user',
-                            parts: [
-                                { text: userInput },
-                            ],
-                        },
-                    ],
-                };
-                
-                const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-                
-                // Use fetch API with timeout and retry logic
-                try {
-                    const controller = new AbortController();
-                    const timeoutId = setTimeout(() => controller.abort(), 20000); // 20 second timeout
-                    
-                    const response = await fetch(url, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify(data),
-                        signal: controller.signal
-                    });
-                    
-                    clearTimeout(timeoutId);
-                    
-                    if (response.status === 200) {
-                        // Reset retry count on success
-                        retryCount = 0;
-                        
-                        const responseData = await response.json();
-                        
-                        // Extract the response text from Gemini
-                        if (responseData.candidates && 
-                            responseData.candidates[0] && 
-                            responseData.candidates[0].content && 
-                            responseData.candidates[0].content.parts && 
-                            responseData.candidates[0].content.parts[0]) {
-                            
-                            const geminiResponse = responseData.candidates[0].content.parts[0].text;
-                            
-                            // Remove the "Processing with Gemini..." message
-                            resultDiv.innerHTML = resultDiv.innerHTML.replace('<p class="loading">Processing with Gemini...</p>', '');
-                            
-                            // Display and speak the response
-                            resultDiv.innerHTML += `<p><strong>Assistant:</strong> ${geminiResponse}</p>`;
-                            speak(geminiResponse);
-                        } else {
-                            throw new Error("Unexpected response format from Gemini API");
-                        }
-                    } else if (response.status === 429) {
-                        // Rate limiting - implement exponential backoff
-                        const maxRetries = parseInt(maxRetriesInput.value);
-                        const backoffTime = parseInt(backoffTimeInput.value);
-                        
-                        if (retryCount < maxRetries) {
-                            retryCount++;
-                            const waitTime = backoffTime * Math.pow(2, retryCount - 1);
-                            
-                            // Update UI with retry information
-                            const retryMessage = `Rate limit exceeded. Retrying in ${waitTime/1000} seconds... (${retryCount}/${maxRetries})`;
-                            resultDiv.innerHTML = resultDiv.innerHTML.replace(
-                                '<p class="loading">Processing with Gemini...</p>', 
-                                `<p class="loading">${retryMessage}</p>`
-                            );
-                            
-                            // Wait and retry
-                            await new Promise(resolve => setTimeout(resolve, waitTime));
-                            processWithGemini(userInput);
-                            return;
-                        } else {
-                            throw new Error(`Too many requests (429). Exceeded maximum retries (${maxRetries}). Please try again later.`);
-                        }
-                    } else {
-                        throw new Error(`API request failed: ${response.status} ${response.statusText}`);
-                    }
-                } catch (error) {
-                    throw error;
+                    maxOutputTokens: 8192,
                 }
-                
-            } catch (error) {
-                handleError(error);
-            } finally {
-                if (retryCount === 0) {
-                    isProcessing = false;
-                }
+            };
+            
+            // Add chat history if available
+            if (chatHistory.length > 0) {
+                requestBody.contents = chatHistory.map(msg => ({
+                    role: msg.role === 'user' ? 'user' : 'model',
+                    parts: [{ text: msg.content }]
+                }));
+                requestBody.contents.push({
+                    role: "user",
+                    parts: [{ text: message }]
+                });
+            }
+            
+            const response = await fetch(apiUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(requestBody)
+            });
+            
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`API error (${response.status}): ${errorText}`);
+            }
+            
+            const data = await response.json();
+            
+            if (data.candidates && data.candidates.length > 0 && 
+                data.candidates[0].content && data.candidates[0].content.parts) {
+                return data.candidates[0].content.parts[0].text;
+            } else {
+                throw new Error('Invalid response format');
             }
         }
         
-        function handleError(error) {
-            console.error("Error:", error);
-            const errorMessage = `Sorry, there was an error: ${error.message}`;
+        function speakText(text) {
+            if (synth.speaking) {
+                synth.cancel();
+            }
             
-            // Remove the "Processing with Gemini..." message if present
-            resultDiv.innerHTML = resultDiv.innerHTML.replace(/<p class="loading">.*?<\/p>/, '');
+            // Split text into manageable chunks (Web Speech API has limitations)
+            const maxLength = 200;
+            const textChunks = [];
             
-            resultDiv.innerHTML += `<p><strong>Error:</strong> ${errorMessage}</p>`;
-            speak("Sorry, there was an error connecting to Gemini.");
+            for (let i = 0; i < text.length; i += maxLength) {
+                textChunks.push(text.substring(i, i + maxLength));
+            }
             
-            // Reset processing state
-            isProcessing = false;
-            retryCount = 0;
-        }
-        
-        // Text-to-speech function
-        function speak(text) {
-            // Flag that we're speaking
-            isSpeaking = true;
+            let chunkIndex = 0;
             
-            // Stop any current speech
-            synth.cancel();
+            function speakNextChunk() {
+                if (chunkIndex < textChunks.length) {
+                    const utterance = new SpeechSynthesisUtterance(textChunks[chunkIndex]);
+                    
+                    utterance.onend = () => {
+                        chunkIndex++;
+                        speakNextChunk();
+                    };
+                    
+                    synth.speak(utterance);
+                }
+            }
             
-            // Create a new utterance
-            const utterance = new SpeechSynthesisUtterance(text);
-            
-            // Optional: adjust speech parameters
-            utterance.rate = 1.0; // Speed: 0.1 to 10
-            utterance.pitch = 1.0; // Pitch: 0 to 2
-            
-            // Handle when speech ends
-            utterance.onend = function() {
-                isSpeaking = false;
-            };
-            
-            // Speak
-            synth.speak(utterance);
+            speakNextChunk();
         }
     </script>
 </body>
